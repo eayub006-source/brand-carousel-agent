@@ -1,102 +1,119 @@
 # Brand Carousel Agent
 
-A Flask app that turns one prompt into a consistent branded carousel deck for LinkedIn or Instagram.
+Generate cohesive branded carousel decks for LinkedIn and Instagram using a single prompt.
 
-The visual system is based on the warm cream, sage green, and deep olive palette you shared. The generator is designed to keep the same typography feel, spacing, grid structure, and overall composition across every slide so the output looks like a single cohesive carousel rather than unrelated templates.
+Brand Carousel Agent is a Flask-based web app that creates visually consistent carousel slides with a unified typography system, spacing structure, editorial layout style, and branded color palette.
 
-## What I built
+The app can generate complete multi-slide carousel decks locally, export PNG slides, and package the full deck as a ZIP download.
 
-- A local web app with a branded editor-style interface.
-- A carousel generator that creates multiple slide images from a single prompt.
-- Consistent 1080×1080 slide layouts with the same type scale and grid language.
-- Download buttons for each PNG slide.
-- A ZIP download for the full carousel.
-- Optional local Ollama support for planning the carousel copy.
-- A fallback offline generator so the app still works without any API keys.
+---
 
-## How the carousel works
+## Features
 
-You give the app:
+- Generate branded carousel slides from a single prompt
+- Consistent visual identity across every slide
+- 1080×1080 optimized slide format
+- Editorial-inspired typography and layout system
+- Export individual PNG slides
+- Download complete carousel decks as ZIP files
+- Optional Ollama integration for local AI-generated copy
+- Offline fallback generation without API keys
 
-- company name
-- platform
-- theme
-- prompt or topic
-- message
-- tone
-- audience
-- keywords
-- slide count
+---
 
-Then it produces a carousel deck where each slide stays within the same visual system:
+## How It Works
 
-- same brand palette
-- same grid background
-- same serif and sans-serif styling
-- same spacing and corner treatment
-- same editorial tone from slide to slide
+Provide:
 
-## Files
+- Company name
+- Platform
+- Theme
+- Topic or prompt
+- Message
+- Tone
+- Audience
+- Keywords
+- Slide count
 
-- [app.py](app.py) - the Flask app, carousel generator, and download endpoints.
-- [README.md](README.md) - project overview and usage notes.
-- [QUICKSTART.md](QUICKSTART.md) - short Windows launch guide.
-- [requirements.txt](requirements.txt) - Python dependencies.
-- [Procfile](Procfile) - deployment entrypoint for Python hosts.
-- [START.bat](START.bat) - double-click launcher for Windows.
-- [START.ps1](START.ps1) - PowerShell launcher for Windows.
+The app generates a cohesive carousel deck while maintaining:
 
-## Run locally
+- Consistent typography
+- Unified spacing and composition
+- Shared color palette
+- Structured grid layouts
+- Matching editorial tone across slides
 
-1. Open a terminal in this folder.
-2. Install dependencies:
+---
 
-```powershell
+## Project Structure
+
+```bash
+.
+├── app.py              # Flask app and carousel generator
+├── README.md           # Project documentation
+├── QUICKSTART.md       # Quick Windows setup guide
+├── requirements.txt    # Python dependencies
+├── Procfile            # Deployment entrypoint
+├── START.bat           # Windows launcher
+└── START.ps1           # PowerShell launcher
+Run Locally
+1. Clone the repository
+git clone <your-repo-url>
+cd brand-carousel-agent
+2. Install dependencies
 python -m pip install -r requirements.txt
-```
-
-3. Start the app:
-
-```powershell
+3. Start the app
 python app.py
-```
 
-4. Open `http://localhost:8000`.
+Open:
 
-## Optional local AI
+http://localhost:8000
+Optional Ollama Support
 
-If you have Ollama installed, set a model before starting the app:
+If Ollama is installed locally, you can enable AI-generated carousel planning and copy.
 
-```powershell
+Example
 $env:OLLAMA_MODEL = "llama3.1"
 python app.py
-```
 
-The app will call your local Ollama server at `http://127.0.0.1:11434` when available.
+The app will connect to:
 
-## Downloading output
+http://127.0.0.1:11434
 
-Every generated carousel includes:
+when available.
 
-- a preview for each slide
-- an individual PNG download for each slide
-- a ZIP download for the full deck
+Output
 
-## Publishing to GitHub
+Each generated carousel includes:
 
-This project is ready to publish, but the current workspace is not connected to a GitHub remote yet. To push it, you need to:
+Slide previews
+Individual PNG downloads
+Full ZIP export of the carousel deck
+Deployment
 
-1. Create an empty GitHub repository.
-2. Add that repo as a remote.
-3. Push the `brand-post-agent` folder contents.
+The app is ready for deployment on Python hosting platforms such as:
 
-If you want, I can help you set up the remote and push the repository once you share the GitHub repo URL.
+Render
+Railway
+Fly.io
+Heroku-compatible platforms
+Start Command
+gunicorn app:app
 
-## Deployment
+The hosting platform should provide the PORT environment variable automatically.
 
-The app is also ready for simple Python hosting platforms that support `Procfile`, such as Render or Railway.
+Stack
+Python
+Flask
+Pillow
+HTML/CSS
+Ollama (optional)
+Future Improvements
+Custom brand themes
+Additional slide layout presets
+Animated carousel exports
+AI-assisted design variations
+Social platform export presets
+License
 
-Use:
-
-- Start command: `gunicorn app:app`
-- Port: the platform will provide `PORT`
+MIT License
