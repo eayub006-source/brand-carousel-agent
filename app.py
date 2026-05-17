@@ -21,29 +21,34 @@ app = Flask(__name__)
 
 BRAND = {
     "cream": "#ECEEE6",
+    "cream_alt": "#E8EBE0",
     "sage": "#7A9060",
+    "sage_light": "#95AB76",
+    "sage_dark": "#5A5E4A",
     "olive": "#2F3028",
-    "light_sage": "#95AB76",
-    "dark_sage": "#5C6E48",
-    "grid": "#D6D8CC",
-    "ink": "#2F3028",
-    "muted": "#6B7166",
+    "olive_mid": "#3E4035",
+    "olive_dark": "#1E2018",
+    "grid": "#D4D6CC",
+    "white": "#FFFFFF",
 }
 
-SLIDE_THEME = {
-    "dark": {
-        "bg": BRAND["olive"],
-        "text": BRAND["cream"],
-        "accent": BRAND["light_sage"],
-        "stroke": "#4A5440",
-    },
-    "light": {
+THEMES = {
+    "sereai": {
+        "name": "SEREAI PPTX",
         "bg": BRAND["cream"],
-        "text": BRAND["ink"],
+        "bg_alt": BRAND["cream_alt"],
+        "text": BRAND["olive"],
+        "text_strong": BRAND["olive_dark"],
+        "muted": BRAND["sage_dark"],
         "accent": BRAND["sage"],
-        "stroke": "#D1D5C7",
+        "accent_light": BRAND["sage_light"],
+        "accent_dark": BRAND["olive_mid"],
+        "grid": BRAND["grid"],
+        "white": BRAND["white"],
     },
 }
+
+DEFAULT_THEME = "sereai"
 
 WINDOWS_FONT_CANDIDATES = {
     "display_bold": [
@@ -56,10 +61,12 @@ WINDOWS_FONT_CANDIDATES = {
         r"C:\Windows\Fonts\timesi.ttf",
     ],
     "sans_regular": [
+        r"C:\Windows\Fonts\calibri.ttf",
         r"C:\Windows\Fonts\segoeui.ttf",
         r"C:\Windows\Fonts\arial.ttf",
     ],
     "sans_bold": [
+        r"C:\Windows\Fonts\calibrib.ttf",
         r"C:\Windows\Fonts\seguisb.ttf",
         r"C:\Windows\Fonts\arialbd.ttf",
     ],
@@ -76,13 +83,16 @@ class SlidePlan:
     index: int
     total: int
     label: str
+    header: str
     headline: str
-    accent_line: str
-    footer: str
-    theme: str
-    tone: str
-    palette: str
-    layout: str
+    hook: str
+    bullets: list[str]
+    cta: str
+    footer_line: str
+    footer_left: str
+    footer_right: str
+    swipe_text: str
+    theme_key: str
 
 
 app = Flask(__name__)
@@ -169,6 +179,84 @@ def try_ollama(prompt: str, model: str) -> str | None:
         return None
 
 
+def try_openai(prompt: str, model: str) -> str | None:
+    endpoint = "https://api.openai.com/v1/chat/completions"
+    payload = json.dumps(
+        {
+            "model": model,
+            "temperature": 0.5,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+    ).encode("utf-8")
+    request_obj = urllib.request.Request(
+        endpoint,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY','')}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request_obj, timeout=45) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        return clean_text(content)
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError):
+        return None
+
+
+def try_anthropic(prompt: str, model: str) -> str | None:
+    endpoint = "https://api.anthropic.com/v1/messages"
+    payload = json.dumps(
+        {
+            "model": model,
+            "max_tokens": 1200,
+            "temperature": 0.5,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+    ).encode("utf-8")
+    request_obj = urllib.request.Request(
+        endpoint,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "x-api-key": os.environ.get("ANTHROPIC_API_KEY", ""),
+            "anthropic-version": "2023-06-01",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request_obj, timeout=45) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        content = data.get("content", [{}])[0].get("text", "")
+        return clean_text(content)
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError):
+        return None
+
+
+def select_llm_provider() -> tuple[str, str]:
+    provider = clean_text(os.environ.get("LLM_PROVIDER"), "").lower()
+    openai_key = clean_text(os.environ.get("OPENAI_API_KEY"), "")
+    anthropic_key = clean_text(os.environ.get("ANTHROPIC_API_KEY"), "")
+    ollama_model = clean_text(os.environ.get("OLLAMA_MODEL"), "")
+
+    if provider == "openai" and openai_key:
+        return "openai", clean_text(os.environ.get("OPENAI_MODEL"), "gpt-4o-mini")
+    if provider == "anthropic" and anthropic_key:
+        return "anthropic", clean_text(os.environ.get("ANTHROPIC_MODEL"), "claude-3-5-sonnet-latest")
+    if provider == "ollama" and ollama_model:
+        return "ollama", ollama_model
+
+    if openai_key:
+        return "openai", clean_text(os.environ.get("OPENAI_MODEL"), "gpt-4o-mini")
+    if anthropic_key:
+        return "anthropic", clean_text(os.environ.get("ANTHROPIC_MODEL"), "claude-3-5-sonnet-latest")
+    if ollama_model:
+        return "ollama", ollama_model
+    return "", ""
+
+
 def parse_keywords(keywords: str) -> list[str]:
     items: list[str] = []
     for part in re.split(r"[,/|]", keywords or ""):
@@ -178,22 +266,42 @@ def parse_keywords(keywords: str) -> list[str]:
     return items
 
 
+def normalize_bullets(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [clean_text(item, "") for item in value if clean_text(item, "")]
+    if isinstance(value, str):
+        parts = [clean_text(part, "") for part in re.split(r"[;\n•]", value) if clean_text(part, "")]
+        return parts
+    return []
+
+
+def resolve_theme_key(value: str | None) -> str:
+    key = clean_text(value, DEFAULT_THEME).lower()
+    return key if key in THEMES else DEFAULT_THEME
+
+
 def prompt_for_ai(payload: dict[str, Any]) -> str:
     return f"""
-You are designing a premium carousel post in a calm editorial style.
+You are a senior brand designer and carousel strategist.
+Design a premium LinkedIn/Instagram carousel that mirrors the reference PPTX style.
 
 Brand palette:
 - Warm Cream #ECEEE6
 - Sage Green #7A9060
 - Deep Olive #2F3028
 - Light Sage #95AB76
-- Dark Sage #5C6E48
+- Dark Sage #5A5E4A
+- Soft Grid #D4D6CC
 
 Reference style:
 - Minimal, grid-based, large serif headlines
 - Calm spacing, restrained copy, elegant contrast
 - 1080x1080 carousel slides
 - Same font sizing and visual system across all slides
+- Top header shows a section label + slide count (e.g., "THE SCENARIO — 02 / 08")
+- Footer shows brand name on the left and a page cue on the right (e.g., "02 / 08 →")
+- Cover slide uses a "SWIPE TO EXPLORE →" cue
+- Include hook lines and where needed a bullet list
 
 Content brief:
 - Brand name: {payload['company_name']}
@@ -205,55 +313,180 @@ Content brief:
 - Audience: {payload['audience']}
 - Keywords: {payload['keywords']}
 - Slide count: {payload['slide_count']}
+- Website (optional): {payload.get('website','')}
 
 Return a JSON array with exactly {payload['slide_count']} items.
 Each item must have:
-- label
-- headline
-- subheadline
-- footer
+- label (short internal label)
+- header (section title shown at top, e.g., THE PROBLEM)
+- headline (main large serif copy)
+- hook (short supporting line)
+- bullets (array of short bullet lines, optional)
+- cta (short CTA line, optional)
+- footer_line (short line above footer, optional)
+- swipe_text (e.g., "SWIPE TO EXPLORE →", optional)
 
 Keep the copy short, premium, and slide-friendly.
+Return JSON only with no markdown or commentary.
 """.strip()
 
 
 def build_slide_plan(payload: dict[str, Any]) -> list[SlidePlan]:
     slide_count = max(MIN_SLIDES, min(MAX_SLIDES, int(payload["slide_count"])))
     keywords = parse_keywords(payload["keywords"])
-    guide = PLATFORM_GUIDES.get(payload["platform"], PLATFORM_GUIDES["linkedin"])
     topic = clean_text(payload["topic"], "A question worth building from")
     message = clean_text(payload["message"], "Clarity through calm design.")
-    theme = clean_text(payload["theme"], "warm cream, sage green, deep olive")
-    tone = clean_text(payload["tone"], guide["voice"])
-    audience = clean_text(payload["audience"], "your audience")
+    theme_key = resolve_theme_key(payload.get("theme_preset"))
     company = clean_text(payload["company_name"], "Your Brand")
+    website = clean_text(payload.get("website"), "")
+    outline_raw = clean_text(payload.get("slide_outline"), "")
+
+    def footer_right(index: int) -> str:
+        return f"{index:02d} / {slide_count:02d}" + (" →" if index < slide_count else "")
+
+    if outline_raw:
+        lines = [line.strip() for line in outline_raw.splitlines() if line.strip()]
+        plans: list[SlidePlan] = []
+        for idx, line in enumerate(lines[:slide_count]):
+            header = ""
+            headline = line
+            hook = ""
+            if ":" in line:
+                header, headline = line.split(":", 1)
+            if "|" in headline:
+                headline, hook = headline.split("|", 1)
+            header = clean_text(header, f"SLIDE {idx + 1}")
+            headline = clean_text(headline, topic)
+            hook = clean_text(hook, message)
+            plans.append(
+                SlidePlan(
+                    index=idx + 1,
+                    total=slide_count,
+                    label=header,
+                    header=header,
+                    headline=headline,
+                    hook=hook,
+                    bullets=[],
+                    cta="",
+                    footer_line=message,
+                    footer_left=company,
+                    footer_right=footer_right(idx + 1),
+                    swipe_text="SWIPE TO EXPLORE →" if idx == 0 else "",
+                    theme_key=theme_key,
+                )
+            )
+        if plans:
+            return plans
+
+    bullet_seeds = keywords[:3] or ["History", "Signals", "Context"]
+    problem_bullets = [f"Prior {seed.lower()} signals were missed." for seed in bullet_seeds]
+    approach_bullets = [
+        f"Remember the full {topic.lower()} journey.",
+        f"Connect past and present {keywords[0].lower() if keywords else 'insight'}.",
+        "Support calmer, informed decisions.",
+    ]
 
     sections = [
-        ("THE QUESTION", topic, message),
-        ("THE SHIFT", f"{topic} became a system.", f"Built for {audience} who need clarity.") ,
-        ("THE CLARITY", f"Not a data problem.", f"A visibility problem.") ,
-        ("THE BUILD", f"A calmer way to explain {keywords[0] if keywords else 'the work'}.", message),
-        ("THE PRODUCT", f"What the carousel needs to say.", f"Short, clean, and easy to trust."),
-        ("THE MOMENT", f"Still early.", f"But already in motion."),
-        ("THE RISK", f"That's how things get missed.", f"Every time. Quietly."),
-        ("THE CLOSING", f"{company} is ready.", f"{guide['cta']}") ,
+        {
+            "label": "COVER",
+            "header": company,
+            "headline": topic,
+            "hook": message,
+            "bullets": [],
+            "cta": "",
+            "footer_line": message,
+            "swipe_text": "SWIPE TO EXPLORE →",
+        },
+        {
+            "label": "THE SCENARIO",
+            "header": "THE SCENARIO",
+            "headline": f"{topic}",
+            "hook": "A routine decision. Happens every day.",
+            "bullets": [],
+            "cta": "",
+            "footer_line": message,
+            "swipe_text": "",
+        },
+        {
+            "label": "THE PROBLEM",
+            "header": "THE PROBLEM",
+            "headline": "But they don't know:",
+            "hook": "",
+            "bullets": problem_bullets,
+            "cta": "",
+            "footer_line": message,
+            "swipe_text": "",
+        },
+        {
+            "label": "ROOT CAUSE",
+            "header": "ROOT CAUSE",
+            "headline": "Because that information isn't connected.",
+            "hook": "It exists. But it's not visible when it matters.",
+            "bullets": [],
+            "cta": "",
+            "footer_line": message,
+            "swipe_text": "",
+        },
+        {
+            "label": "THE INSIGHT",
+            "header": "THE INSIGHT",
+            "headline": "That's the real problem.",
+            "hook": "Not lack of data. Lack of context.",
+            "bullets": [],
+            "cta": "",
+            "footer_line": message,
+            "swipe_text": "",
+        },
+        {
+            "label": "OUR APPROACH",
+            "header": "OUR APPROACH",
+            "headline": f"At {company}, we're building systems that:",
+            "hook": "",
+            "bullets": approach_bullets,
+            "cta": "",
+            "footer_line": message,
+            "swipe_text": "",
+        },
+        {
+            "label": "THE VISION",
+            "header": "THE VISION",
+            "headline": f"Because better decisions start with better context.",
+            "hook": message,
+            "bullets": [],
+            "cta": "",
+            "footer_line": message,
+            "swipe_text": "",
+        },
+        {
+            "label": "FOLLOW US",
+            "header": "FOLLOW US",
+            "headline": company,
+            "hook": "We're building systems that actually understand.",
+            "bullets": [],
+            "cta": f"Follow {company}",
+            "footer_line": website or message,
+            "swipe_text": "",
+        },
     ]
 
     plans: list[SlidePlan] = []
     for index in range(slide_count):
-        label, headline, subheadline = sections[index % len(sections)]
+        section = sections[index % len(sections)]
         plans.append(
             SlidePlan(
                 index=index + 1,
                 total=slide_count,
-                label=label,
-                headline=headline,
-                accent_line=subheadline,
-                footer=company,
-                theme=theme,
-                tone=tone,
-                palette="warm cream / sage / deep olive",
-                layout="carousel",
+                label=section["label"],
+                header=section["header"],
+                headline=section["headline"],
+                hook=section["hook"],
+                bullets=section["bullets"],
+                cta=section["cta"],
+                footer_line=section["footer_line"],
+                footer_left=company,
+                footer_right=footer_right(index + 1),
+                swipe_text=section["swipe_text"] if index == 0 else "",
+                theme_key=theme_key,
             )
         )
     return plans
@@ -267,18 +500,31 @@ def build_slide_plan_from_ai(payload: dict[str, Any], ai_text: str) -> list[Slid
 
         plans: list[SlidePlan] = []
         for idx, item in enumerate(raw[: payload["slide_count"]]):
+            header = clean_text(
+                item.get("header"),
+                clean_text(payload["company_name"], "Your Brand") if idx == 0 else f"SLIDE {idx + 1}",
+            )
+            headline = clean_text(item.get("headline"), payload["topic"])
+            hook = clean_text(item.get("hook"), payload["message"])
+            footer_line = clean_text(item.get("footer_line"), payload["message"])
+            bullets = normalize_bullets(item.get("bullets"))
+            cta = clean_text(item.get("cta"), "")
+            swipe_text = clean_text(item.get("swipe_text"), "")
             plans.append(
                 SlidePlan(
                     index=idx + 1,
                     total=payload["slide_count"],
-                    label=clean_text(item.get("label"), f"SLIDE {idx + 1}"),
-                    headline=clean_text(item.get("headline"), payload["topic"]),
-                    accent_line=clean_text(item.get("subheadline"), payload["message"]),
-                    footer=clean_text(item.get("footer"), payload["company_name"]),
-                    theme=clean_text(payload["theme"], "warm cream / sage / deep olive"),
-                    tone=clean_text(payload["tone"], PLATFORM_GUIDES[payload["platform"]]["voice"]),
-                    palette="warm cream / sage / deep olive",
-                    layout="carousel",
+                    label=clean_text(item.get("label"), header),
+                    header=header,
+                    headline=headline,
+                    hook=hook,
+                    bullets=bullets,
+                    cta=cta,
+                    footer_line=footer_line,
+                    footer_left=clean_text(payload["company_name"], "Your Brand"),
+                    footer_right=f"{idx + 1:02d} / {payload['slide_count']:02d}" + (" →" if idx + 1 < payload["slide_count"] else ""),
+                    swipe_text=swipe_text,
+                    theme_key=resolve_theme_key(payload.get("theme_preset")),
                 )
             )
         return plans if len(plans) == payload["slide_count"] else None
@@ -294,40 +540,11 @@ def draw_grid(draw: ImageDraw.ImageDraw, width: int, height: int, color: str, st
         draw.line([(0, y), (width, y)], fill=stroke, width=1)
 
 
-def draw_corners(draw: ImageDraw.ImageDraw, width: int, height: int, accent: str, filled: bool = True) -> None:
-    fill = hex_to_rgb(accent)
-    r = 26
-    for box in [
-        (10, 10, 10 + r, 10 + r),
-        (width - 10 - r, 10, width - 10, 10 + r),
-        (10, height - 10 - r, 10 + r, height - 10),
-        (width - 10 - r, height - 10 - r, width - 10, height - 10),
-    ]:
-        draw.ellipse(box, fill=fill if filled else None, outline=fill, width=3)
-
-
-def draw_frame(draw: ImageDraw.ImageDraw, width: int, height: int, theme_key: str, plan: SlidePlan) -> None:
-    theme = SLIDE_THEME[theme_key]
+def draw_frame(draw: ImageDraw.ImageDraw, width: int, height: int, theme_key: str) -> None:
+    theme = THEMES.get(theme_key, THEMES[DEFAULT_THEME])
     bg = hex_to_rgb(theme["bg"])
-    text = hex_to_rgb(theme["text"])
-    accent = hex_to_rgb(theme["accent"])
-    stroke = theme["stroke"]
-
     draw.rectangle([(0, 0), (width, height)], fill=bg)
-    draw_grid(draw, width, height, stroke, step=62)
-    draw_corners(draw, width, height, theme["accent"])
-
-    label_text = " ".join(plan.label.upper())
-    label_bbox = draw.textbbox((0, 0), label_text, font=FONT_TINY)
-    label_width = label_bbox[2] - label_bbox[0]
-    draw.text(((width - label_width) / 2, 40), label_text, font=FONT_TINY, fill=text)
-    draw.line([(106, 48), (160, 48)], fill=accent, width=2)
-    draw.line([(width - 160, 48), (width - 106, 48)], fill=accent, width=2)
-
-    index_text = f"{plan.index:02d} / {plan.total:02d}"
-    draw.text((86, 106), index_text, font=FONT_TINY, fill=text)
-    draw.text((84, height - 54), clean_text(plan.footer, "SEREAI LABS"), font=FONT_SMALL_BOLD, fill=accent)
-    draw.text((width - 86, height - 54), "→", font=FONT_SMALL_BOLD, fill=text)
+    draw_grid(draw, width, height, theme["grid"], step=60)
 
 
 def draw_multiline(draw: ImageDraw.ImageDraw, lines: list[str], x: int, y: int, font, fill: str, gap: int) -> int:
@@ -340,38 +557,98 @@ def draw_multiline(draw: ImageDraw.ImageDraw, lines: list[str], x: int, y: int, 
     return current_y
 
 
+def draw_right_text(draw: ImageDraw.ImageDraw, text: str, x: int, y: int, font, fill: str) -> None:
+    color = hex_to_rgb(fill)
+    bbox = draw.textbbox((0, 0), text, font=font)
+    draw.text((x - (bbox[2] - bbox[0]), y), text, font=font, fill=color)
+
+
+def draw_bullets(
+    draw: ImageDraw.ImageDraw,
+    bullets: list[str],
+    x: int,
+    y: int,
+    max_width: int,
+    font,
+    fill: str,
+    gap: int = 10,
+) -> int:
+    current_y = y
+    color = hex_to_rgb(fill)
+    for idx, bullet in enumerate(bullets, start=1):
+        label = f"{idx}"
+        label_bbox = draw.textbbox((0, 0), label, font=font)
+        label_width = label_bbox[2] - label_bbox[0]
+        draw.text((x, current_y), label, font=font, fill=color)
+        line_x = x + label_width + 16
+        bullet_lines = split_lines(bullet, max_width - line_x + x, font)
+        if not bullet_lines:
+            bullet_lines = [bullet]
+        for line in bullet_lines:
+            draw.text((line_x, current_y), line, font=font, fill=color)
+            current_y += (label_bbox[3] - label_bbox[1]) + gap
+        current_y += 6
+    return current_y
+
+
 def generate_carousel_slide(plan: SlidePlan) -> Image.Image:
     width, height = CANVAS_SIZE
-    bg_mode = "dark" if plan.index % 2 == 1 else "light"
-    theme = SLIDE_THEME[bg_mode]
+    theme = THEMES.get(plan.theme_key, THEMES[DEFAULT_THEME])
     img = Image.new("RGB", (width, height), color=hex_to_rgb(theme["bg"]))
     draw = ImageDraw.Draw(img)
-    draw_frame(draw, width, height, bg_mode, plan)
+    draw_frame(draw, width, height, plan.theme_key)
 
     text = theme["text"]
     accent = theme["accent"]
-    left = 84
-    top = 210
-    max_text = 790
+    muted = theme["muted"]
+    left = 92
+    right = width - 92
+    header_y = 78
 
-    # top rule and section label system
-    draw.line([(left, 176), (left + 70, 176)], fill=hex_to_rgb(accent), width=4)
+    if plan.index == 1:
+        draw.text((left, header_y), clean_text(plan.header, "Your Brand").upper(), font=FONT_SMALL_BOLD, fill=hex_to_rgb(text))
+        draw_right_text(
+            draw,
+            f"{plan.index:02d} / {plan.total:02d}",
+            right,
+            header_y,
+            FONT_SMALL_BOLD,
+            text,
+        )
+    else:
+        header_text = f"{clean_text(plan.header, 'SLIDE').upper()} — {plan.index:02d} / {plan.total:02d}"
+        draw.text((left, header_y), header_text, font=FONT_SMALL_BOLD, fill=hex_to_rgb(text))
 
-    headline_font = FONT_DISPLAY_XL if plan.index in (1, 2, 3) else FONT_DISPLAY_LG
+    draw.line([(left, header_y + 34), (left + 70, header_y + 34)], fill=hex_to_rgb(accent), width=3)
+
+    content_top = 210
+    max_text = right - left
+    headline_font = FONT_DISPLAY_XL if plan.index in (1, 2) else FONT_DISPLAY_LG
     headline_lines = split_lines(plan.headline, max_text, headline_font)
     if not headline_lines:
         headline_lines = ["Still early.", "But already in motion."]
-    current_y = draw_multiline(draw, headline_lines, left, top, headline_font, text, 10)
+    current_y = draw_multiline(draw, headline_lines, left, content_top, headline_font, text, 12)
 
-    draw.line([(left, current_y + 18), (left + 70, current_y + 18)], fill=hex_to_rgb(accent), width=4)
+    if plan.hook:
+        hook_lines = split_lines(plan.hook, max_text, FONT_ITALIC)
+        if hook_lines:
+            current_y = draw_multiline(draw, hook_lines[:2], left, current_y + 18, FONT_ITALIC, muted, 6)
 
-    sub_lines = split_lines(plan.accent_line, max_text, FONT_ITALIC)
-    if sub_lines:
-        draw_multiline(draw, sub_lines[:2], left, current_y + 34, FONT_ITALIC, accent, 8)
+    if plan.bullets:
+        current_y = draw_bullets(draw, plan.bullets, left, current_y + 22, max_text, FONT_SMALL_BOLD, text, gap=8)
 
-    # footer commentary to mimic the reference slides
-    footer_y = height - 150
-    draw.text((left, footer_y), clean_text(plan.tone, "Clinical insight through continuous memory."), font=FONT_ITALIC, fill=hex_to_rgb(text))
+    if plan.cta:
+        cta_lines = split_lines(plan.cta, max_text, FONT_SMALL_BOLD)
+        draw_multiline(draw, cta_lines, left, current_y + 18, FONT_SMALL_BOLD, accent, 6)
+
+    if plan.footer_line:
+        draw.text((left, height - 150), plan.footer_line, font=FONT_ITALIC, fill=hex_to_rgb(muted))
+
+    draw.text((left, height - 70), plan.footer_left, font=FONT_SMALL_BOLD, fill=hex_to_rgb(text))
+
+    footer_right = plan.swipe_text or plan.footer_right
+    if footer_right:
+        draw_right_text(draw, footer_right, right, height - 70, FONT_SMALL_BOLD, text)
 
     return img
 
@@ -401,24 +678,40 @@ def normalize_payload(data: dict[str, Any]) -> dict[str, Any]:
         "company_name": clean_text(data.get("company_name"), "Your Brand"),
         "platform": clean_text(data.get("platform"), "linkedin").lower(),
         "theme": clean_text(data.get("theme"), "warm cream, sage green, deep olive"),
+        "theme_preset": clean_text(data.get("theme_preset"), DEFAULT_THEME),
         "topic": clean_text(data.get("topic"), "It started as a question."),
         "message": clean_text(data.get("message"), "Clinical insight through continuous memory."),
         "tone": clean_text(data.get("tone"), "calm, premium, and editorial"),
         "audience": clean_text(data.get("audience"), "your audience"),
         "keywords": clean_text(data.get("keywords"), "clarity, trust, calm, editorial"),
+        "website": clean_text(data.get("website"), ""),
+        "slide_outline": clean_text(data.get("slide_outline"), ""),
         "slide_count": slide_count,
     }
 
 
 def create_slide_bundle(payload: dict[str, Any]) -> dict[str, Any]:
-    model = clean_text(os.environ.get("OLLAMA_MODEL"), "")
-    ai_text = None
-    if model:
-        ai_text = try_ollama(prompt_for_ai(payload), model)
-
-    plans = build_slide_plan_from_ai(payload, ai_text or "") if ai_text else None
-    if not plans:
+    if payload.get("slide_outline"):
         plans = build_slide_plan(payload)
+        source = "outline"
+    else:
+        provider, model = select_llm_provider()
+        ai_text = None
+        source = "fallback"
+        if provider == "openai":
+            ai_text = try_openai(prompt_for_ai(payload), model)
+            source = "openai"
+        elif provider == "anthropic":
+            ai_text = try_anthropic(prompt_for_ai(payload), model)
+            source = "anthropic"
+        elif provider == "ollama":
+            ai_text = try_ollama(prompt_for_ai(payload), model)
+            source = "ollama"
+
+        plans = build_slide_plan_from_ai(payload, ai_text or "") if ai_text else None
+        if not plans:
+            plans = build_slide_plan(payload)
+            source = "fallback"
 
     images = [generate_carousel_slide(plan) for plan in plans]
     encoded = [image_to_base64(img) for img in images]
@@ -438,7 +731,7 @@ def create_slide_bundle(payload: dict[str, Any]) -> dict[str, Any]:
         "platform": payload["platform"],
         "slide_count": len(plans),
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "source": "ollama" if ai_text else "fallback",
+        "source": source,
         "slides": slide_files,
         "cover": encoded[0] if encoded else "",
     }
@@ -785,7 +1078,7 @@ PAGE = """
         <div class="brand"><span class="dot"></span><strong>Brand Carousel Agent</strong></div>
         <p class="eyebrow">Warm cream, sage green, deep olive</p>
         <h1>Generate the same kind of carousel slides, every time.</h1>
-        <p class="lede">Give the agent your own prompt and it will build a consistent carousel deck in the same visual language as your reference images: same font family feel, same sizes, same grid structure, same palette, and downloadable PNG slides.</p>
+        <p class="lede">Give the agent your own prompt and it will build a consistent carousel deck in the same visual language as your reference PPTX: same font family feel, same sizes, same grid structure, same palette, and downloadable PNG slides.</p>
       </div>
       <div class="meta-grid">
         <div class="card swatch">
@@ -846,6 +1139,13 @@ PAGE = """
           </div>
 
           <div>
+            <label for="theme_preset">Theme preset</label>
+            <select id="theme_preset" name="theme_preset">
+              <option value="sereai" selected>SEREAI PPTX</option>
+            </select>
+          </div>
+
+          <div>
             <label for="topic">Prompt / topic</label>
             <input id="topic" name="topic" value="It started as a question. Now it's something real." />
           </div>
@@ -853,6 +1153,11 @@ PAGE = """
           <div>
             <label for="message">Message</label>
             <textarea id="message" name="message">Clinical insight through continuous memory.</textarea>
+          </div>
+
+          <div>
+            <label for="website">Website / handle (optional)</label>
+            <input id="website" name="website" value="aidot.tech" />
           </div>
 
           <div class="field-grid">
@@ -883,6 +1188,11 @@ PAGE = """
             </div>
           </div>
 
+          <div>
+            <label for="slide_outline">Slide outline (optional, one line per slide)</label>
+            <textarea id="slide_outline" name="slide_outline" placeholder="THE SCENARIO: The moment something shifts | A routine decision happens every day"></textarea>
+          </div>
+
           <div class="actions">
             <button class="primary" type="submit">Generate carousel</button>
             <button class="ghost" id="resetButton" type="button">Reset prompt</button>
@@ -903,7 +1213,7 @@ PAGE = """
           <button class="primary" id="downloadAllButton" type="button" disabled>Download all slides as ZIP</button>
         </div>
         <div class="slides" id="slides"></div>
-        <div class="footer-note">If Ollama is set up locally, the agent will use it for carousel planning. Otherwise it stays fully usable offline with the same visual system.</div>
+        <div class="footer-note">The agent will use OpenAI, Anthropic, or Ollama when keys are available. Otherwise it stays fully usable offline with the same visual system.</div>
       </section>
     </div>
   </div>
@@ -922,11 +1232,14 @@ PAGE = """
       company_name: 'Your Brand',
       platform: 'linkedin',
       theme: 'Warm cream, sage green, deep olive, premium editorial carousel',
+      theme_preset: 'sereai',
       topic: "It started as a question. Now it's something real.",
       message: 'Clinical insight through continuous memory.',
       tone: 'calm, premium, and editorial',
       audience: 'customers, prospects, and community followers',
       keywords: 'clarity, trust, calm, editorial',
+      website: 'aidot.tech',
+      slide_outline: '',
       slide_count: '6',
     };
 
@@ -986,7 +1299,14 @@ PAGE = """
 
       const data = await response.json();
       currentBundle = data;
-      sourcePill.textContent = data.source === 'ollama' ? 'Planned with local Ollama' : 'Built with the offline carousel engine';
+      const sourceLabels = {
+        openai: 'Planned with OpenAI',
+        anthropic: 'Planned with Anthropic',
+        ollama: 'Planned with local Ollama',
+        outline: 'Built from your slide outline',
+        fallback: 'Built with the offline carousel engine',
+      };
+      sourcePill.textContent = sourceLabels[data.source] || 'Carousel ready';
       timestamp.textContent = `Created ${new Date(data.created_at).toLocaleString()} · ${data.slide_count} slides`;
       renderSlides(data.slides || []);
       downloadAllButton.disabled = false;

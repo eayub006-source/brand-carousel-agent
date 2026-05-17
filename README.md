@@ -14,7 +14,7 @@ The app generates complete multi-slide carousel decks locally, exports PNG slide
 - Apply an editorial-inspired typography and layout system
 - Export individual PNG slides
 - Download complete carousel decks as ZIP files
-- Use optional Ollama integration for local AI-generated copy
+- Use optional OpenAI, Anthropic, or Ollama integration for AI-generated copy
 - Fall back to offline generation without API keys
 
 ## How It Works
@@ -29,6 +29,8 @@ Provide:
 - Tone
 - Audience
 - Keywords
+- Website / handle (optional)
+- Slide outline (optional)
 - Slide count
 
 The app then generates a cohesive carousel deck while maintaining:
@@ -68,16 +70,31 @@ python app.py
 
 4. Open `http://localhost:8000`.
 
-## Optional Ollama Support
+## Optional AI Providers (OpenAI, Anthropic, Ollama)
 
-If Ollama is installed locally, you can enable AI-generated carousel planning and copy.
+The agent can plan carousel copy with OpenAI, Anthropic, or a local Ollama model. If no keys are present it falls back to the offline planner.
 
+**OpenAI**
+```powershell
+$env:OPENAI_API_KEY = "your-key"
+$env:OPENAI_MODEL = "gpt-4o-mini"
+python app.py
+```
+
+**Anthropic**
+```powershell
+$env:ANTHROPIC_API_KEY = "your-key"
+$env:ANTHROPIC_MODEL = "claude-3-5-sonnet-latest"
+python app.py
+```
+
+**Ollama**
 ```powershell
 $env:OLLAMA_MODEL = "llama3.1"
 python app.py
 ```
 
-The app will connect to `http://127.0.0.1:11434` when available.
+Optional: set `LLM_PROVIDER` to `openai`, `anthropic`, or `ollama` to force a provider.
 
 ## Output
 
@@ -104,7 +121,7 @@ The host should provide the `PORT` environment variable automatically.
 This project includes a Vercel Python entrypoint in [api/index.py](api/index.py) and routing in [vercel.json](vercel.json).
 
 1. Create a new Vercel project from your GitHub repo.
-2. Set the project root to the `brand-post-agent` folder if Vercel asks for a root directory.
+2. Set the project root to the `brand-carousel-agent` folder if Vercel asks for a root directory.
 3. Let Vercel auto-detect the Python runtime.
 4. Deploy.
 

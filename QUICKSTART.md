@@ -3,7 +3,7 @@
 ## 🚀 Run Locally (Easiest Way)
 
 **Option 1: Double-click (Windows)**
-1. Go to the `brand-post-agent` folder.
+1. Go to the `brand-carousel-agent` folder.
 2. Double-click `START.bat`
 3. Your browser will open automatically.
 4. Done!
@@ -18,7 +18,7 @@
 **Option 3: Manual (if scripts don't work)**
 1. Open PowerShell and navigate to the folder:
 ```powershell
-cd "c:\Users\DELL PRECision 7550\Documents\brand-post-agent"
+cd "c:\Users\DELL PRECision 7550\Documents\brand-carousel-agent"
 ```
 
 2. Start the app:
@@ -36,11 +36,25 @@ http://localhost:8000
 - **No personal API needed** — it uses a built-in brand-aware generator.
 - **Respects your theme** — warm cream (#ECEEE6), sage green (#7A9060), deep olive (#2F3028).
 - **Two platforms, one click** — toggle between LinkedIn and Instagram; both get unique formatting.
-- **Optional Ollama support** — if you have Ollama running locally, set `OLLAMA_MODEL` before starting and the app will use it for richer text generation.
+- **Optional OpenAI / Anthropic / Ollama support** — set API keys or an Ollama model and the app will use it for richer text generation.
 
-## Advanced: Use a Local AI Model
+## Advanced: Use AI Providers
 
-If you have **Ollama** installed:
+**OpenAI**
+```powershell
+$env:OPENAI_API_KEY = "your-key"
+$env:OPENAI_MODEL = "gpt-4o-mini"
+& ".\..\..\.venv\Scripts\python.exe" app.py
+```
+
+**Anthropic**
+```powershell
+$env:ANTHROPIC_API_KEY = "your-key"
+$env:ANTHROPIC_MODEL = "claude-3-5-sonnet-latest"
+& ".\..\..\.venv\Scripts\python.exe" app.py
+```
+
+**Ollama**
 
 1. Download a model (e.g., `ollama pull llama3.1`).
 2. Start Ollama in a separate terminal.
@@ -73,7 +87,7 @@ This app is ready for **Railway**, **Render**, **Heroku**, or any Python host th
 ## File Structure
 
 ```
-brand-post-agent/
+brand-carousel-agent/
   ├── app.py           # The Flask app (all-in-one)
   ├── requirements.txt # Dependencies
   ├── Procfile         # Deployment config
