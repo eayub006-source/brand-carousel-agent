@@ -5,12 +5,6 @@
       "excludeFiles": "{__pycache__/**,**/*.pyc,**/*.pyo,**/*.pyd,*.png,*.zip}"
     }
   },
-  "builds": [
-    {
-      "src": "api/index.py",
-      "use": "@vercel/python"
-    }
-  ],
   "routes": [
     {
       "src": "/(.*)",
