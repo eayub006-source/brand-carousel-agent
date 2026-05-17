@@ -45,21 +45,30 @@ SLIDE_THEME = {
     },
 }
 
+# Fix 1: ship bundled fonts so the app works on Vercel/Linux (no C:\Windows\Fonts)
+FONT_DIR = os.path.join(os.path.dirname(__file__), "fonts")
+
 WINDOWS_FONT_CANDIDATES = {
     "display_bold": [
+        os.path.join(FONT_DIR, "LibreBaskerville-Bold.ttf"),
         r"C:\Windows\Fonts\georgiab.ttf",
         r"C:\Windows\Fonts\timesbd.ttf",
         r"C:\Windows\Fonts\times.ttf",
     ],
     "display_italic": [
+        os.path.join(FONT_DIR, "LibreBaskerville-Italic.ttf"),
         r"C:\Windows\Fonts\georgiai.ttf",
         r"C:\Windows\Fonts\timesi.ttf",
     ],
     "sans_regular": [
+        os.path.join(FONT_DIR, "NotoSans-Regular.ttf"),
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         r"C:\Windows\Fonts\segoeui.ttf",
         r"C:\Windows\Fonts\arial.ttf",
     ],
     "sans_bold": [
+        os.path.join(FONT_DIR, "NotoSans-SemiBold.ttf"),
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         r"C:\Windows\Fonts\seguisb.ttf",
         r"C:\Windows\Fonts\arialbd.ttf",
     ],
@@ -908,6 +917,8 @@ PAGE = """
     </div>
   </div>
 
+  <!-- Fix 3: JSZip for client-side ZIP (avoids URL size limits on Vercel) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script>
     const form = document.getElementById('generator');
     const resetButton = document.getElementById('resetButton');
@@ -959,11 +970,25 @@ PAGE = """
       });
     }
 
-    downloadAllButton.addEventListener('click', () => {
+    // Fix 3: build the ZIP entirely in the browser using JSZip — no server round-trip,
+    // no URL size limits, works on Vercel Hobby without extra routes.
+    downloadAllButton.addEventListener('click', async () => {
       if (!currentBundle) return;
-      const params = new URLSearchParams();
-      params.set('bundle', JSON.stringify(currentBundle));
-      window.location.href = '/api/download-zip?' + params.toString();
+      downloadAllButton.textContent = 'Preparing ZIP...';
+      downloadAllButton.disabled = true;
+      const zip = new JSZip();
+      for (const slide of currentBundle.slides) {
+        zip.file(slide.filename, slide.image, { base64: true });
+      }
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'carousel.zip';
+      a.click();
+      URL.revokeObjectURL(url);
+      downloadAllButton.textContent = 'Download all slides as ZIP';
+      downloadAllButton.disabled = false;
     });
 
     resetButton.addEventListener('click', () => {
@@ -978,13 +1003,31 @@ PAGE = """
       slidesEl.innerHTML = '';
       downloadAllButton.disabled = true;
 
-      const response = await fetch('/api/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      // Fix 2: proper error handling — surface server errors instead of hanging on "Generating..."
+      let response, data;
+      try {
+        response = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
 
-      const data = await response.json();
+        if (!response.ok) {
+          const errText = await response.text();
+          sourcePill.textContent = 'Error';
+          timestamp.textContent = 'Generation failed (' + response.status + '). Check server logs.';
+          console.error('Server error:', errText);
+          return;
+        }
+
+        data = await response.json();
+      } catch (err) {
+        sourcePill.textContent = 'Network error';
+        timestamp.textContent = 'Could not reach the server. Try again.';
+        console.error('Fetch error:', err);
+        return;
+      }
+
       currentBundle = data;
       sourcePill.textContent = data.source === 'ollama' ? 'Planned with local Ollama' : 'Built with the offline carousel engine';
       timestamp.textContent = `Created ${new Date(data.created_at).toLocaleString()} · ${data.slide_count} slides`;
@@ -1009,21 +1052,16 @@ def api_generate():
     return jsonify(bundle)
 
 
-@app.get("/api/download-zip")
+# Fix 3 (server side): Keep a POST route as a fallback for server-generated ZIPs.
+# The frontend now uses JSZip client-side, but this route is retained for API consumers.
+@app.post("/api/download-zip")
 def api_download_zip():
-    bundle_raw = request.args.get("bundle", "")
-    if not bundle_raw:
-        return jsonify({"error": "Missing bundle data"}), 400
-
-    try:
-        bundle = json.loads(bundle_raw)
-        slides = bundle.get("slides", [])
-    except json.JSONDecodeError:
-        return jsonify({"error": "Invalid bundle data"}), 400
+    payload = normalize_payload(request.get_json(force=True) or {})
+    bundle = create_slide_bundle(payload)
 
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for slide in slides:
+        for slide in bundle["slides"]:
             image_data = base64.b64decode(slide["image"])
             archive.writestr(slide["filename"], image_data)
     zip_buffer.seek(0)
