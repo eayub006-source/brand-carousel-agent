@@ -2,7 +2,17 @@
 $dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $dir
 
-Write-Host "Starting Brand Post Agent..." -ForegroundColor Green
+Write-Host ""
+Write-Host "════════════════════════════════════════════════════════" -ForegroundColor Cyan
+Write-Host "  Brand Carousel Agent - Local Server" -ForegroundColor Cyan
+Write-Host "════════════════════════════════════════════════════════" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "✓ Starting server..." -ForegroundColor Green
+Write-Host ""
+Write-Host "🌐 Open your browser to:" -ForegroundColor Yellow
+Write-Host "   http://127.0.0.1:8000" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "Press Ctrl+C to stop" -ForegroundColor Gray
 Write-Host ""
 
-& "c:\Users\DELL PRECision 7550\Documents\.venv\Scripts\python.exe" app.py
+python app.py
