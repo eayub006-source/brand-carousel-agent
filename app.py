@@ -55,20 +55,28 @@ WINDOWS_FONT_CANDIDATES = {
         r"C:\Windows\Fonts\georgiab.ttf",
         r"C:\Windows\Fonts\timesbd.ttf",
         r"C:\Windows\Fonts\times.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
     ],
     "display_italic": [
         r"C:\Windows\Fonts\georgiai.ttf",
         r"C:\Windows\Fonts\timesi.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSerif-Italic.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Italic.ttf",
     ],
     "sans_regular": [
         r"C:\Windows\Fonts\calibri.ttf",
         r"C:\Windows\Fonts\segoeui.ttf",
         r"C:\Windows\Fonts\arial.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     ],
     "sans_bold": [
         r"C:\Windows\Fonts\calibrib.ttf",
         r"C:\Windows\Fonts\seguisb.ttf",
         r"C:\Windows\Fonts\arialbd.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     ],
 }
 
@@ -134,11 +142,35 @@ def load_font(candidates: list[str], size: int):
         if os.path.exists(path):
             try:
                 return ImageFont.truetype(path, size=size)
-            except OSError:
+            except (OSError, Exception):
                 continue
-    return ImageFont.load_default()
+    # Fallback: try to load a default larger font
+    try:
+        return ImageFont.load_default()
+    except:
+        return ImageFont.load_default()
 
 
+# Load fonts at app startup, but will retry on each slide if needed
+_FONT_CACHE = {}
+
+
+def get_font(font_type: str, size: int):
+    """Get font with fallback - called on each slide generation"""
+    key = (font_type, size)
+    if key in _FONT_CACHE:
+        return _FONT_CACHE[key]
+    
+    if font_type not in WINDOWS_FONT_CANDIDATES:
+        font = ImageFont.load_default()
+    else:
+        font = load_font(WINDOWS_FONT_CANDIDATES[font_type], size)
+    
+    _FONT_CACHE[key] = font
+    return font
+
+
+# Pre-load primary fonts
 FONT_DISPLAY = load_font(WINDOWS_FONT_CANDIDATES["display_bold"], 84)
 FONT_DISPLAY_LG = load_font(WINDOWS_FONT_CANDIDATES["display_bold"], 102)
 FONT_DISPLAY_XL = load_font(WINDOWS_FONT_CANDIDATES["display_bold"], 114)
