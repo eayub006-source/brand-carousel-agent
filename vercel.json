@@ -1,17 +1,9 @@
 {
   "version": 2,
-  "functions": {
-    "api/index.py": {
-      "excludeFiles": "{__pycache__/**,**/*.pyc,**/*.pyo,**/*.pyd,*.png,*.zip}"
-    }
-  },
   "routes": [
     {
       "src": "/(.*)",
       "dest": "api/index.py"
     }
-  ],
-  "env": {
-    "NODE_ENV": "production"
-  }
+  ]
 }
